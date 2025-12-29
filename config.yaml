@@ -1,0 +1,27 @@
+s3:
+  bucket: chatarch
+  prefix: chats/
+
+summarization:
+  model: "gemini-2.5-flash"
+  delay: 10 # Seconds to wait between API calls
+
+paths:
+  gemini:
+    - "~/.gemini/tmp/*/chats/session-*.json"
+  roo:
+    - "~/.vscode-server/data/User/globalStorage/rooveterinaryinc.roo-cline/tasks/*/ui_messages.json"
+    - "~/.vscode-server-insiders/data/User/globalStorage/rooveterinaryinc.roo-cline/tasks/*/ui_messages.json"
+    - "~/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline/tasks/*/ui_messages.json"
+    - "~/.config/Code - Insiders/User/globalStorage/rooveterinaryinc.roo-cline/tasks/*/ui_messages.json"
+  aider:
+    - "~/repos/**/.aider.chat.history.md"
+    - "~/projects/**/.aider.chat.history.md"
+
+filters:
+  gemini_commit_only:
+    keywords:
+      - "git diff --cached"
+      - "create a git commit"
+      - "perform the commit without asking"
+    max_messages: 2

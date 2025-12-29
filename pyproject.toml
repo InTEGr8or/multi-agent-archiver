@@ -1,0 +1,18 @@
+[project]
+name = "chatarch"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.42.17",
+    "google-genai>=1.56.0",
+    "pyyaml>=6.0.3",
+    "requests>=2.32.5",
+    "tqdm>=4.67.1",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.10",
+]
