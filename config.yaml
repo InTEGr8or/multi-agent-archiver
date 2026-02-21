@@ -8,7 +8,7 @@ summarization:
 
 paths:
   gemini:
-    - "~/.gemini/tmp/*/chats/session-*.json"
+    - "~/.gemini/tmp/**/chats/session-*.json"
   roo:
     - "~/.vscode-server/data/User/globalStorage/rooveterinaryinc.roo-cline/tasks/*/ui_messages.json"
     - "~/.vscode-server-insiders/data/User/globalStorage/rooveterinaryinc.roo-cline/tasks/*/ui_messages.json"

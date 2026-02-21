@@ -3,6 +3,7 @@ import os
 import json
 import yaml
 import glob
+import re
 import boto3
 from pathlib import Path
 import logging
@@ -36,12 +37,19 @@ class ChatArchiver:
         self.limit = limit
         self.processed_count = 0
         
-        if self.dry_run:
-            logger.info("DRY RUN MODE ENABLED - No files will be deleted or uploaded.")
-        
-        if self.limit:
-            logger.info(f"LIMIT ENABLED - Only processing up to {self.limit} files.")
-        
+        # Load workspace index if it exists
+        self.workspace_index = {}
+        index_path = Path("data/workspace_index.json")
+        if index_path.exists():
+            try:
+                with open(index_path, "r") as f:
+                    data = json.load(f)
+                    for entry in data.get("workspaces", []) + data.get("unmatched_hashes", []):
+                        if entry.get("hash"):
+                            self.workspace_index[entry["hash"]] = entry.get("resolved_path") or entry.get("clue_path")
+            except Exception as e:
+                logger.error(f"Error loading workspace index: {e}")
+
         self.s3_client = boto3.client('s3')
         
         self.google_api_key = os.getenv("GOOGLE_API_KEY")
@@ -94,19 +102,42 @@ class ChatArchiver:
                 data = json.load(f)
             
             messages = data.get("messages", [])
-            filters = self.config['filters']['gemini_commit_only']
             
-            if len(messages) > filters['max_messages']:
-                return False
+            # Case 1: Empty conversation
+            if not messages:
+                return True, "Empty conversation"
+
+            # Check the very first message
+            first_msg_raw = messages[0].get("content", "")
+            if isinstance(first_msg_raw, list):
+                first_msg_text = " ".join([str(p) for p in first_msg_raw])
+            else:
+                first_msg_text = str(first_msg_raw)
             
-            content = " ".join([m.get("content", "").lower() for m in messages if m.get("content")])
-            for keyword in filters['keywords']:
-                if keyword.lower() in content:
-                    return True
-            return False
+            # Case 2: Contentless conversation
+            if not first_msg_text.strip():
+                return True, "No content in first message"
+
+            first_msg_lower = first_msg_text.lower()
+            commit_patterns = [
+                "git diff --cached",
+                "create a git commit",
+                "perform the commit without asking",
+                "create a git commit for all staged",
+                "The commit has been successfully created"
+            ]
+            
+            is_commit_prompt = any(pattern in first_msg_lower for pattern in commit_patterns)
+            preview = first_msg_text.strip().replace("\n", " ")[:50]
+            
+            # Case 3: Automated commit prompt with more leeway for messages (retries/errors)
+            if is_commit_prompt and len(messages) <= 15:
+                return True, preview
+                
+            return False, preview
         except Exception as e:
             logger.error(f"Error checking {file_path}: {e}")
-            return False
+            return False, ""
 
     def get_summary(self, content):
         if self.dry_run:
@@ -124,13 +155,34 @@ class ChatArchiver:
 
         while retries < max_retries:
             try:
-                prompt = f"Summarize the following AI chat conversation in 1-2 sentences. Focus on the main task or topic:\n\n{content[:15000]}"
+                # Stricter prompt to avoid preamble and fluff
+                prompt = (
+                    "Summarize the following AI chat conversation in 1 phrase. "
+                    "CRITICAL: Do not include any preamble like 'This conversation is about...', 'In this chat...', "
+                    "'The AI successfully...', or 'The following discussed...'. "
+                    "Start directly with the core topic or task. Be terse, objective, and title-like.\n\n"
+                    f"Conversation content:\n{content[:15000]}"
+                )
                 
                 response = self.client.models.generate_content(
                     model=self.config['summarization']['model'],
                     contents=prompt
                 )
-                return response.text.strip()
+                summary = response.text.strip()
+                
+                # Secondary cleanup just in case the AI ignored instructions
+                prefixes_to_strip = [
+                    "This conversation is about", "This chat is about", 
+                    "In this conversation", "In this chat", 
+                    "The conversation discussed", "The following discussed",
+                    "The conversation begins with", "The chat starts with",
+                    "The conversation is an", "The chat is an"
+                ]
+                for prefix in prefixes_to_strip:
+                    if summary.lower().startswith(prefix.lower()):
+                        summary = summary[len(prefix):].strip().lstrip(':').strip()
+                
+                return summary[:200]
             except Exception as e:
                 is_rate_limit = False
                 if hasattr(e, 'code') and e.code == 429:
@@ -156,8 +208,12 @@ class ChatArchiver:
         
         deleted_count = 0
         for f in tqdm(files, desc="Cleaning Gemini chats", unit="file"):
-            if self.is_gemini_commit_only(f):
+            is_commit, preview = self.is_gemini_commit_only(f)
+            if is_commit:
                 file_size = Path(f).stat().st_size
+                if self.dry_run:
+                    tqdm.write(f"[DRY-RUN] Identifying commit-only chat: {f} | Prompt: {preview}...")
+                
                 logger.info(f"Identified commit-only Gemini chat: {f} ({self.format_size(file_size)})")
                 if not self.dry_run:
                     try:
@@ -173,66 +229,88 @@ class ChatArchiver:
         
         logger.info(f"Cleanup complete. Identified {deleted_count} files for deletion.")
 
-    def process_gemini_archive(self):
+    def get_workspace_info(self, file_path, category):
+        p = Path(file_path)
+        if category == 'gemini':
+            # Use hash from path
+            h = p.parent.parent.name
+            resolved = self.workspace_index.get(h)
+            if resolved:
+                return resolved, Path(resolved).name
+            return str(p.parent.parent), h
+        elif category == 'roo':
+            # Extract from JSON if possible
+            try:
+                with open(file_path, 'r') as f:
+                    content = f.read(10000)
+                    match = re.search(r'Current Workspace Directory \((.*?)\)', content)
+                    if match:
+                        ws_path = match.group(1)
+                        return ws_path, Path(ws_path).name
+            except Exception:
+                pass
+            return str(p.parent.parent.parent), p.parent.parent.parent.name
+        elif category == 'aider':
+            return str(p.parent), p.parent.name
+        return "Unknown", "Unknown"
+
+    def process_category_archival(self, category):
         if self.limit and self.processed_count >= self.limit:
             return
-        logger.info("Processing Gemini chats for archival...")
-        files = self.discover_files('gemini')
-        
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=20)
-        logger.info(f"Archiving chats older than {cutoff_date.isoformat()}")
-
-        for f in tqdm(files, desc="Archiving Gemini chats", unit="file"):
-            if self.limit and self.processed_count >= self.limit:
-                break
-            file_path = Path(f)
-            mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
             
-            if mtime < cutoff_date:
-                self.archive_file(f, "gemini")
-            else:
-                logger.debug(f"Skipping {f} (Last modified: {mtime.isoformat()})")
+        logger.info(f"Processing {category} chats for archival...")
+        files = self.discover_files(category)
+        
+        # Group files by workspace
+        workspaces = {}
+        for f in files:
+            ws_path, ws_id = self.get_workspace_info(f, category)
+            if ws_path not in workspaces:
+                workspaces[ws_path] = []
+            workspaces[ws_path].append(f)
+            
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=20)
+        keep_count = 5 # Number of recent chats to preserve per workspace
+
+        for ws_path, ws_files in workspaces.items():
+            # Sort files by modification time, newest first
+            ws_files_with_mtime = []
+            for f in ws_files:
+                try:
+                    mtime = datetime.fromtimestamp(Path(f).stat().st_mtime, tz=timezone.utc)
+                    ws_files_with_mtime.append((f, mtime))
+                except OSError:
+                    continue
+            
+            ws_files_with_mtime.sort(key=lambda x: x[1], reverse=True)
+            
+            # Process files, skipping the most recent N
+            for i, (f, mtime) in enumerate(ws_files_with_mtime):
+                if self.limit and self.processed_count >= self.limit:
+                    break
+                
+                if i < keep_count:
+                    logger.debug(f"Preserving {f} (Newest {i+1} in workspace {ws_path})")
+                    continue
+                    
+                if mtime < cutoff_date:
+                    self.archive_file(f, category, ws_path)
+                else:
+                    logger.debug(f"Skipping {f} (Too recent: {mtime.isoformat()})")
+
+    def process_gemini_archive(self):
+        self.process_category_archival('gemini')
 
     def process_roo(self):
-        if self.limit and self.processed_count >= self.limit:
-            return
-        logger.info("Processing Roo Code chats...")
-        files = self.discover_files('roo')
-        
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=20)
-        
-        for f in tqdm(files, desc="Archiving Roo chats", unit="file"):
-            if self.limit and self.processed_count >= self.limit:
-                break
-            file_path = Path(f)
-            mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
-
-            if mtime < cutoff_date:
-                self.archive_file(f, "roo")
-            else:
-                logger.debug(f"Skipping Roo chat {f} (too recent)")
+        self.process_category_archival('roo')
 
     def process_aider(self):
-        if self.limit and self.processed_count >= self.limit:
-            return
-        logger.info("Processing Aider chats...")
-        files = self.discover_files('aider')
-        
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=20)
-        
-        for f in tqdm(files, desc="Archiving Aider chats", unit="file"):
-            if self.limit and self.processed_count >= self.limit:
-                break
-            file_path = Path(f)
-            mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
+        self.process_category_archival('aider')
 
-            if mtime < cutoff_date:
-                self.archive_file(f, "aider")
-            else:
-                logger.debug(f"Skipping Aider chat {f} (too recent)")
-
-    def to_markdown(self, category, content):
+    def to_markdown(self, category, content, workspace_path=None):
         md = [f"# Archive: {category.capitalize()} Chat", "---"]
+        if workspace_path:
+            md.append(f"**Workspace:** `{workspace_path}`\n")
         
         if category == 'gemini':
             try:
@@ -272,7 +350,13 @@ class ChatArchiver:
 
         return "\n".join(md)
 
-    def archive_file(self, file_path, category):
+    def slugify(self, text):
+        text = text.lower()
+        text = re.sub(r'[^\w\s-]', '', text)
+        text = re.sub(r'[-\s]+', '-', text)
+        return text.strip('-')[:60]
+
+    def archive_file(self, file_path, category, workspace_path=None):
         try:
             p = Path(file_path)
             file_size = p.stat().st_size
@@ -288,67 +372,69 @@ class ChatArchiver:
             else:
                 parsed_content = raw_content
 
-            if category == 'roo':
-                unique_name = f"{p.parent.name}_{p.name}"
-            elif category == 'aider':
-                parts = p.parts
-                try:
-                    start_idx = -1
-                    if 'repos' in parts:
-                        start_idx = parts.index('repos')
-                    elif 'projects' in parts:
-                        start_idx = parts.index('projects')
-                    
-                    if start_idx != -1:
-                        unique_name = "_".join(parts[start_idx+1:]).replace(".", "_")
-                    else:
-                        unique_name = f"{p.parent.name}_{p.name}".replace(".", "_")
-                except Exception:
-                    unique_name = f"{p.parent.name}_{p.name}".replace(".", "_")
+            # Determine Date
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            match = re.search(r'(\d{4}-\d{2}-\d{2})', p.name)
+            if match:
+                date_str = match.group(1)
             else:
-                unique_name = p.name
+                # Fallback to file modification time
+                mtime = datetime.fromtimestamp(p.stat().st_mtime)
+                date_str = mtime.strftime("%Y-%m-%d")
 
-            markdown_content = self.to_markdown(category, parsed_content)
+            markdown_content = self.to_markdown(category, parsed_content, workspace_path)
             summary = self.get_summary(markdown_content)
             
-            archive_data = {
-                "category": category,
-                "archived_at": datetime.now(timezone.utc).isoformat(),
-                "original_path": str(file_path),
-                "summary": summary,
-                "markdown": markdown_content,
-                "raw_content": parsed_content
-            }
+            # Generate slug from summary
+            slug = self.slugify(summary)
+            if not slug:
+                slug = "conversation"
             
-            s3_key = f"{self.config['s3']['prefix']}{category}/{unique_name}"
-            if not s3_key.endswith(".json"):
-                s3_key += ".json"
+            base_key_name = f"{date_str}-{slug}"
+            
+            # Prepend summary to markdown for better readability in the archive
+            full_markdown = f"# Summary\n{summary}\n\n{markdown_content}"
+            
+            s3_prefix = f"{self.config['s3']['prefix']}{category}/{base_key_name}"
+            
+            uploads = [
+                {"key": f"{s3_prefix}.md", "body": full_markdown, "type": "text/markdown"},
+                {"key": f"{s3_prefix}.summary.txt", "body": summary, "type": "text/plain"},
+                {"key": f"{s3_prefix}.json", "body": json.dumps(parsed_content, indent=2), "type": "application/json"}
+            ]
 
             if self.dry_run:
-                logger.info(f"[DRY-RUN] Would archive {file_path} to s3://{self.config['s3']['bucket']}/{s3_key}")
+                for upload in uploads:
+                    logger.info(f"[DRY-RUN] Would upload to s3://{self.config['s3']['bucket']}/{upload['key']}")
                 self.total_bytes_saved += file_size
                 self.processed_count += 1
                 return
 
-            logger.info(f"Archiving {file_path} to s3://{self.config['s3']['bucket']}/{s3_key}")
+            logger.info(f"Archiving {file_path} to S3 (3 files)...")
             
-            self.s3_client.put_object(
-                Bucket=self.config['s3']['bucket'],
-                Key=s3_key,
-                Body=json.dumps(archive_data, indent=2),
-                ContentType='application/json'
-            )
+            for upload in uploads:
+                self.s3_client.put_object(
+                    Bucket=self.config['s3']['bucket'],
+                    Key=upload['key'],
+                    Body=upload['body'],
+                    ContentType=upload['type']
+                )
             
             os.remove(file_path)
             self.total_bytes_saved += file_size
             self.processed_count += 1
-            logger.info(f"Successfully archived and removed local file: {file_path}")
+            logger.info(f"Successfully archived (MD, Summary, JSON) and removed local file: {file_path}")
             
         except Exception as e:
             logger.error(f"Failed to archive {file_path}: {e}")
 
-    def run(self):
+    def run(self, cleanup_only=False):
         self.process_gemini_cleanup()
+        if cleanup_only:
+            mode_prefix = "[DRY-RUN] Estimated" if self.dry_run else "Total"
+            print(f"\n{mode_prefix} disk space reclaimed from cleanup: {self.format_size(self.total_bytes_saved)}")
+            return
+
         self.process_gemini_archive()
         self.process_roo()
         self.process_aider()
@@ -360,7 +446,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Archive AI chats to S3.")
     parser.add_argument("--dry-run", action="store_true", help="Perform a dry run.")
     parser.add_argument("--limit", type=int, help="Limit the number of files archived.")
+    parser.add_argument("--cleanup-only", action="store_true", help="Only perform cleanup of commit-only chats.")
     args = parser.parse_args()
 
     archiver = ChatArchiver(dry_run=args.dry_run, limit=args.limit)
-    archiver.run()
+    archiver.run(cleanup_only=args.cleanup_only)

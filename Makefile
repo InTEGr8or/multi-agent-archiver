@@ -21,3 +21,6 @@ dry-run: lint check-op ## Perform a dry run of the archiver (e.g. make dry-run A
 archive: lint check-op ## Archive chats to S3 and remove local files
 	export GOOGLE_API_KEY=$$(op read "op://Private/GEMINI_API_KEY/credential") && [ -n "$$GOOGLE_API_KEY" ] || exit 1; \
 	uv run python archiver.py $(ARGS)
+
+cleanup: lint ## Delete commit-only chats locally (no S3 upload)
+	uv run python archiver.py --cleanup-only $(ARGS)
