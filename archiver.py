@@ -50,17 +50,57 @@ class ChatArchiver:
             except Exception as e:
                 logger.error(f"Error loading workspace index: {e}")
 
-        self.s3_client = boto3.client('s3')
-        
-        self.google_api_key = os.getenv("GOOGLE_API_KEY")
-        if self.google_api_key:
-            self.client = genai.Client(api_key=self.google_api_key)
-        else:
-            logger.warning("GOOGLE_API_KEY not found in environment variables. Summarization will be skipped.")
-            self.client = None
+        self._s3_client = None
+        self._gemini_client = None
+        self.gemini_api_key = None
             
         self.request_delay = self.config.get('summarization', {}).get('delay', 10)
         self.total_bytes_saved = 0
+
+    @property
+    def s3_client(self):
+        if self._s3_client is None:
+            self._s3_client = boto3.client('s3')
+        return self._s3_client
+
+    @property
+    def client(self):
+        """Lazy loader for the Gemini client."""
+        if self._gemini_client is None:
+            # Check environment for GEMINI_API_KEY or legacy GOOGLE_API_KEY
+            self.gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            
+            if not self.gemini_api_key:
+                # Attempt to fetch from 1Password
+                secret_ref = "op://Private/GEMINI_API_KEY/credential"
+                try:
+                    logger.info(f"GEMINI_API_KEY not found in environment. Fetching from 1Password ({secret_ref})...")
+                    
+                    # Try 'op' first, then 'op.exe' for WSL compatibility with Windows Hello
+                    for op_cmd in ["op", "op.exe"]:
+                        try:
+                            result = subprocess.run(
+                                [op_cmd, "read", secret_ref],
+                                capture_output=True,
+                                text=True,
+                                check=True
+                            )
+                            self.gemini_api_key = result.stdout.strip()
+                            if self.gemini_api_key:
+                                break
+                        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                            # Only warn on the last attempt
+                            if op_cmd == "op.exe":
+                                error_msg = getattr(e, 'stderr', str(e)).strip()
+                                logger.warning(f"Failed to fetch GEMINI_API_KEY from 1Password: {error_msg}")
+                except Exception as e:
+                    logger.warning(f"An unexpected error occurred while fetching from 1Password: {e}")
+            
+            if self.gemini_api_key:
+                self._gemini_client = genai.Client(api_key=self.gemini_api_key)
+            else:
+                logger.warning("Summarization client unavailable (missing GEMINI_API_KEY).")
+        return self._gemini_client
 
     def format_size(self, bytes_val):
         for unit in ['B', 'KB', 'MB', 'GB']:
@@ -140,11 +180,14 @@ class ChatArchiver:
             return False, ""
 
     def get_summary(self, content):
-        if self.dry_run:
-            return "Dry run summary"
+        # Access self.client to trigger secret fetch even in dry-run
+        client = self.client
         
-        if not self.client:
-            return "Summary unavailable (No API Key)"
+        if self.dry_run:
+            return "Dry Run Title", "Dry run summary (Secret Fetch Verified). This is a mock 1-3 paragraph summary to simulate the new format."
+        
+        if not client:
+            return "Summary unavailable", "Summary unavailable (No API Key)"
         
         # Initial configured delay
         time.sleep(self.request_delay)
@@ -155,22 +198,38 @@ class ChatArchiver:
 
         while retries < max_retries:
             try:
-                # Stricter prompt to avoid preamble and fluff
+                # Stricter prompt for structured title and 1-3 paragraph summary
                 prompt = (
-                    "Summarize the following AI chat conversation in 1 phrase. "
+                    "Summarize the following AI chat conversation. Provide your response in exactly two parts:\n"
+                    "TITLE: A single-line, direct, technical title for the conversation.\n"
+                    "SUMMARY: A 1 to 3 paragraph detailed summary focusing on technical objectives, "
+                    "specific problems addressed, and the final resolution.\n\n"
                     "CRITICAL: Do not include any preamble like 'This conversation is about...', 'In this chat...', "
-                    "'The AI successfully...', or 'The following discussed...'. "
-                    "Start directly with the core topic or task. Be terse, objective, and title-like.\n\n"
+                    "or 'The following discussed...'. Start both the title and the summary directly with the core content.\n\n"
                     f"Conversation content:\n{content[:15000]}"
                 )
                 
-                response = self.client.models.generate_content(
+                response = client.models.generate_content(
                     model=self.config['summarization']['model'],
                     contents=prompt
                 )
-                summary = response.text.strip()
+                text = response.text.strip()
                 
-                # Secondary cleanup just in case the AI ignored instructions
+                title = "Untitled Conversation"
+                summary = text
+                
+                # Try to parse title and summary from the response
+                if "TITLE:" in text and "SUMMARY:" in text:
+                    parts = text.split("SUMMARY:", 1)
+                    title_part = parts[0].replace("TITLE:", "").strip()
+                    summary_part = parts[1].strip()
+                    
+                    if title_part:
+                        title = title_part
+                    if summary_part:
+                        summary = summary_part
+
+                # Cleanup generic prefixes if they still occur
                 prefixes_to_strip = [
                     "This conversation is about", "This chat is about", 
                     "In this conversation", "In this chat", 
@@ -179,10 +238,12 @@ class ChatArchiver:
                     "The conversation is an", "The chat is an"
                 ]
                 for prefix in prefixes_to_strip:
+                    if title.lower().startswith(prefix.lower()):
+                        title = title[len(prefix):].strip().lstrip(':').strip()
                     if summary.lower().startswith(prefix.lower()):
                         summary = summary[len(prefix):].strip().lstrip(':').strip()
                 
-                return summary[:200]
+                return title[:200], summary
             except Exception as e:
                 is_rate_limit = False
                 if hasattr(e, 'code') and e.code == 429:
@@ -272,31 +333,37 @@ class ChatArchiver:
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=20)
         keep_count = 5 # Number of recent chats to preserve per workspace
 
+        # Collect all files to process to show overall progress
+        files_to_archive = []
         for ws_path, ws_files in workspaces.items():
             # Sort files by modification time, newest first
             ws_files_with_mtime = []
             for f in ws_files:
                 try:
                     mtime = datetime.fromtimestamp(Path(f).stat().st_mtime, tz=timezone.utc)
-                    ws_files_with_mtime.append((f, mtime))
+                    ws_files_with_mtime.append((f, mtime, ws_path))
                 except OSError:
                     continue
             
             ws_files_with_mtime.sort(key=lambda x: x[1], reverse=True)
             
             # Process files, skipping the most recent N
-            for i, (f, mtime) in enumerate(ws_files_with_mtime):
-                if self.limit and self.processed_count >= self.limit:
-                    break
-                
+            for i, (f, mtime, ws_p) in enumerate(ws_files_with_mtime):
                 if i < keep_count:
-                    logger.debug(f"Preserving {f} (Newest {i+1} in workspace {ws_path})")
                     continue
                     
                 if mtime < cutoff_date:
-                    self.archive_file(f, category, ws_path)
-                else:
-                    logger.debug(f"Skipping {f} (Too recent: {mtime.isoformat()})")
+                    files_to_archive.append((f, ws_p))
+
+        if not files_to_archive:
+            logger.info(f"No {category} files found for archival.")
+            return
+
+        desc = f"Archiving {category.capitalize()}"
+        for f, ws_p in tqdm(files_to_archive, desc=desc, unit="file"):
+            if self.limit and self.processed_count >= self.limit:
+                break
+            self.archive_file(f, category, ws_p)
 
     def process_gemini_archive(self):
         self.process_category_archival('gemini')
@@ -383,29 +450,36 @@ class ChatArchiver:
                 date_str = mtime.strftime("%Y-%m-%d")
 
             markdown_content = self.to_markdown(category, parsed_content, workspace_path)
-            summary = self.get_summary(markdown_content)
+            title, summary = self.get_summary(markdown_content)
             
-            # Generate slug from summary
-            slug = self.slugify(summary)
+            # Generate slug from the title
+            slug = self.slugify(title)
             if not slug:
                 slug = "conversation"
             
             base_key_name = f"{date_str}-{slug}"
             
-            # Prepend summary to markdown for better readability in the archive
-            full_markdown = f"# Summary\n{summary}\n\n{markdown_content}"
+            # Prepend title and summary to markdown for better readability in the archive
+            full_markdown = f"# Title: {title}\n\n# Summary\n{summary}\n\n{markdown_content}"
             
-            s3_prefix = f"{self.config['s3']['prefix']}{category}/{base_key_name}"
+            # Use both title and summary in the summary.txt file
+            full_summary_text = f"Title: {title}\n\nSummary:\n{summary}"
+            
+            # Extract Year and Month for sharding
+            # date_str is expected to be YYYY-MM-DD
+            year = date_str[:4]
+            month = date_str[5:7]
+            
+            s3_prefix = f"{self.config['s3']['prefix']}{category}/{year}/{month}/{base_key_name}"
             
             uploads = [
                 {"key": f"{s3_prefix}.md", "body": full_markdown, "type": "text/markdown"},
-                {"key": f"{s3_prefix}.summary.txt", "body": summary, "type": "text/plain"},
+                {"key": f"{s3_prefix}.summary.txt", "body": full_summary_text, "type": "text/plain"},
                 {"key": f"{s3_prefix}.json", "body": json.dumps(parsed_content, indent=2), "type": "application/json"}
             ]
 
             if self.dry_run:
-                for upload in uploads:
-                    logger.info(f"[DRY-RUN] Would upload to s3://{self.config['s3']['bucket']}/{upload['key']}")
+                tqdm.write(f"[DRY-RUN] Would upload to s3://{self.config['s3']['bucket']}/{s3_prefix}.md")
                 self.total_bytes_saved += file_size
                 self.processed_count += 1
                 return
@@ -440,7 +514,10 @@ class ChatArchiver:
         self.process_aider()
         
         mode_prefix = "[DRY-RUN] Estimated" if self.dry_run else "Total"
+        s3_location = f"s3://{self.config['s3']['bucket']}/{self.config['s3']['prefix']}"
+        
         print(f"\n{mode_prefix} disk space reclaimed: {self.format_size(self.total_bytes_saved)}")
+        print(f"Archive Destination: {s3_location}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Archive AI chats to S3.")

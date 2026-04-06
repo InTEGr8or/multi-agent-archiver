@@ -8,18 +8,13 @@ help: ## Display this help screen
 # Application Tasks
 # ==============================================================================
 
-check-op: ## Check `op` authentication status
-	@op whoami > /dev/null 2>&1 || (echo "\033[31mError: Not signed in to 1Password. Please run 'op signin'.\033[0m" && exit 1)
-
 lint: ## Run linting and auto-fix with Ruff
 	uv run ruff check --fix .
 
-dry-run: lint check-op ## Perform a dry run of the archiver (e.g. make dry-run ARGS="--limit 5")
-	export GOOGLE_API_KEY=$$(op read "op://Private/GEMINI_API_KEY/credential") && [ -n "$$GOOGLE_API_KEY" ] || exit 1; \
+dry-run: lint ## Perform a dry run of the archiver (e.g. make dry-run ARGS="--limit 5")
 	uv run python archiver.py --dry-run $(ARGS)
 
-archive: lint check-op ## Archive chats to S3 and remove local files
-	export GOOGLE_API_KEY=$$(op read "op://Private/GEMINI_API_KEY/credential") && [ -n "$$GOOGLE_API_KEY" ] || exit 1; \
+archive: lint ## Archive chats to S3 and remove local files
 	uv run python archiver.py $(ARGS)
 
 cleanup: lint ## Delete commit-only chats locally (no S3 upload)

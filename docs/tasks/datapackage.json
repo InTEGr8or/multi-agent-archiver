@@ -1,0 +1,27 @@
+{
+  "name": "mission-control",
+  "resources": [
+    {
+      "name": "mission",
+      "path": "mission.usv",
+      "format": "csv",
+      "delimiter": "\u001f",
+      "schema": {
+        "fields": [
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "slug",
+            "type": "string"
+          },
+          {
+            "name": "dependencies",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ]
+}
