@@ -29,13 +29,17 @@ logging.getLogger('').addHandler(console)
 logger = logging.getLogger(__name__)
 
 class ChatArchiver:
-    def __init__(self, config_path="config.yaml", dry_run=False, limit=None):
+    def __init__(self, config_path="config.yaml", dry_run=False, limit=None, days_override=None):
         with open(config_path, "r") as f:
             self.config = yaml.safe_load(f)
         
         self.dry_run = dry_run
         self.limit = limit
+        self.days_override = days_override
         self.processed_count = 0
+        
+        self.retention_days = self.days_override if self.days_override is not None else self.config.get('retention', {}).get('days', 20)
+        self.keep_count = self.config.get('retention', {}).get('keep_recent', 5)
         
         # Load workspace index if it exists
         self.workspace_index = {}
@@ -330,8 +334,8 @@ class ChatArchiver:
                 workspaces[ws_path] = []
             workspaces[ws_path].append(f)
             
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=20)
-        keep_count = 5 # Number of recent chats to preserve per workspace
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.retention_days)
+        keep_count = self.keep_count
 
         # Collect all files to process to show overall progress
         files_to_archive = []
@@ -523,8 +527,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Archive AI chats to S3.")
     parser.add_argument("--dry-run", action="store_true", help="Perform a dry run.")
     parser.add_argument("--limit", type=int, help="Limit the number of files archived.")
+    parser.add_argument("--days", type=int, help="Override the retention period (number of days). Use 0 for no limit.")
     parser.add_argument("--cleanup-only", action="store_true", help="Only perform cleanup of commit-only chats.")
     args = parser.parse_args()
 
-    archiver = ChatArchiver(dry_run=args.dry_run, limit=args.limit)
+    archiver = ChatArchiver(dry_run=args.dry_run, limit=args.limit, days_override=args.days)
     archiver.run(cleanup_only=args.cleanup_only)

@@ -2,6 +2,10 @@ s3:
   bucket: chatarch
   prefix: chats/
 
+retention:
+  days: 20          # Only archive chats older than this
+  keep_recent: 5    # Always keep the N most recent chats per workspace
+
 summarization:
   model: "gemini-2.5-flash-lite"
   delay: 20 # Seconds to wait between API calls
