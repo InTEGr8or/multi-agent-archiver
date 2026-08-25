@@ -10,7 +10,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "requests>=2.32.5",
     "tqdm>=4.67.1",
-    "agent-registry @ file:///home/mstouffer/repos/agent-registry",
+    "agent-cli-registry>=0.1.0",
 ]
 
 [dependency-groups]
