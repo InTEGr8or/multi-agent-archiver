@@ -17,3 +17,6 @@ dependencies = [
 dev = [
     "ruff>=0.14.10",
 ]
+
+[tool.uv.sources]
+agent-cli-registry = { path = "/home/mstouffer/repos/agent-registry" }

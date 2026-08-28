@@ -14,6 +14,20 @@ import random
 from tqdm import tqdm
 import subprocess
 
+from agent_registry import discover_agent_chats, get_chat_workspace, get_chat_last_active
+
+# Categories whose file discovery is delegated to agent-cli-registry instead
+# of the `paths` globs in config.yaml. `search_roots` is only meaningful for
+# patterns relative to a project (e.g. Aider's history file); registry-global
+# patterns (e.g. Claude Code's ~/.claude/projects/**) ignore it.
+REGISTRY_BACKED_CATEGORIES = {
+    "claude": {"agent_id": "claude"},
+    "aider": {
+        "agent_id": "aider",
+        "search_roots": [Path.home() / "repos", Path.home() / "projects"],
+    },
+}
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -57,6 +71,7 @@ class ChatArchiver:
         self._s3_client = None
         self._gemini_client = None
         self.gemini_api_key = None
+        self._gemini_key_fetch_attempted = False
             
         self.request_delay = self.config.get('summarization', {}).get('delay', 10)
         self.total_bytes_saved = 0
@@ -70,28 +85,34 @@ class ChatArchiver:
     @property
     def client(self):
         """Lazy loader for the Gemini client."""
-        if self._gemini_client is None:
+        if self._gemini_client is None and not self._gemini_key_fetch_attempted:
+            self._gemini_key_fetch_attempted = True
             # Check environment for GEMINI_API_KEY or legacy GOOGLE_API_KEY
             self.gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-            
+
             if not self.gemini_api_key:
                 # Attempt to fetch from 1Password
                 secret_ref = "op://Private/GEMINI_API_KEY/credential"
                 try:
                     logger.info(f"GEMINI_API_KEY not found in environment. Fetching from 1Password ({secret_ref})...")
-                    
-                    # Try 'op' first, then 'op.exe' for WSL compatibility with Windows Hello
+
+                    # Try 'op' first, then 'op.exe' for WSL compatibility with Windows Hello.
+                    # A timeout is required: op.exe can block indefinitely on an
+                    # unanswered Windows Hello prompt in a headless run.
                     for op_cmd in ["op", "op.exe"]:
                         try:
                             result = subprocess.run(
                                 [op_cmd, "read", secret_ref],
                                 capture_output=True,
                                 text=True,
-                                check=True
+                                check=True,
+                                timeout=10,
                             )
                             self.gemini_api_key = result.stdout.strip()
                             if self.gemini_api_key:
                                 break
+                        except subprocess.TimeoutExpired:
+                            logger.warning(f"Timed out waiting for '{op_cmd}' (10s) -- skipping.")
                         except (subprocess.CalledProcessError, FileNotFoundError) as e:
                             # Only warn on the last attempt
                             if op_cmd == "op.exe":
@@ -99,7 +120,7 @@ class ChatArchiver:
                                 logger.warning(f"Failed to fetch GEMINI_API_KEY from 1Password: {error_msg}")
                 except Exception as e:
                     logger.warning(f"An unexpected error occurred while fetching from 1Password: {e}")
-            
+
             if self.gemini_api_key:
                 self._gemini_client = genai.Client(api_key=self.gemini_api_key)
             else:
@@ -114,30 +135,20 @@ class ChatArchiver:
         return f"{bytes_val:.2f} TB"
 
     def discover_files(self, category):
+        if category in REGISTRY_BACKED_CATEGORIES:
+            cfg = REGISTRY_BACKED_CATEGORIES[category]
+            chats = discover_agent_chats(
+                agent_id=cfg["agent_id"],
+                search_roots=cfg.get("search_roots"),
+            )
+            return sorted({str(c.path) for c in chats})
+
         patterns = self.config['paths'].get(category, [])
         files = []
         for pattern in patterns:
             expanded_pattern = str(Path(pattern).expanduser())
-            
-            # Efficient discovery for Aider using 'find'
-            if category == 'aider' and "**" in expanded_pattern:
-                search_root = expanded_pattern.split("**")[0]
-                filename = expanded_pattern.split("/")[-1]
-                try:
-                    cmd = [
-                        "find", search_root, "-name", filename,
-                        "-not", "-path", "*/node_modules/*",
-                        "-not", "-path", "*/.venv/*",
-                        "-not", "-path", "*/.git/*"
-                    ]
-                    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-                    found = [f for f in result.stdout.splitlines() if f.strip()]
-                    files.extend(found)
-                except subprocess.CalledProcessError as e:
-                    logger.error(f"Error running find for {category}: {e}")
-            else:
-                found = glob.glob(expanded_pattern, recursive=True)
-                files.extend(found)
+            found = glob.glob(expanded_pattern, recursive=True)
+            files.extend(found)
         return sorted(list(set(files)))
 
     def is_gemini_commit_only(self, file_path):
@@ -317,7 +328,17 @@ class ChatArchiver:
             return str(p.parent.parent.parent), p.parent.parent.parent.name
         elif category == 'aider':
             return str(p.parent), p.parent.name
+        elif category == 'claude':
+            ws = get_chat_workspace(self._as_discovered_chat(file_path, category))
+            if ws:
+                return str(ws), ws.name
+            return "Unknown", "Unknown"
         return "Unknown", "Unknown"
+
+    def _as_discovered_chat(self, file_path, category):
+        from agent_registry import DiscoveredChat
+        parser_type = "jsonl" if category == "claude" else "markdown"
+        return DiscoveredChat(agent_id=category, path=Path(file_path), parser_type=parser_type)
 
     def process_category_archival(self, category):
         if self.limit and self.processed_count >= self.limit:
@@ -340,11 +361,16 @@ class ChatArchiver:
         # Collect all files to process to show overall progress
         files_to_archive = []
         for ws_path, ws_files in workspaces.items():
-            # Sort files by modification time, newest first
+            # Sort by true last-active time where available (e.g. Claude Code's
+            # per-message timestamps), falling back to file mtime otherwise --
+            # mtime alone can be misleading for metadata-only stub rewrites.
             ws_files_with_mtime = []
             for f in ws_files:
                 try:
-                    mtime = datetime.fromtimestamp(Path(f).stat().st_mtime, tz=timezone.utc)
+                    last_active = None
+                    if category == "claude":
+                        last_active = get_chat_last_active(self._as_discovered_chat(f, category))
+                    mtime = last_active or datetime.fromtimestamp(Path(f).stat().st_mtime, tz=timezone.utc)
                     ws_files_with_mtime.append((f, mtime, ws_path))
                 except OSError:
                     continue
@@ -377,6 +403,9 @@ class ChatArchiver:
 
     def process_aider(self):
         self.process_category_archival('aider')
+
+    def process_claude(self):
+        self.process_category_archival('claude')
 
     def to_markdown(self, category, content, workspace_path=None):
         md = [f"# Archive: {category.capitalize()} Chat", "---"]
@@ -419,6 +448,46 @@ class ChatArchiver:
         elif category == 'aider':
             md.append(str(content))
 
+        elif category == 'claude':
+            try:
+                data = content if isinstance(content, list) else json.loads(content)
+                for entry in data:
+                    etype = entry.get("type")
+                    if etype not in ("user", "assistant"):
+                        continue
+                    message = entry.get("message", {})
+                    role = (message.get("role") or etype).upper()
+                    ts = entry.get("timestamp", "")
+                    raw = message.get("content", "")
+
+                    if isinstance(raw, list):
+                        parts = []
+                        for block in raw:
+                            if not isinstance(block, dict):
+                                continue
+                            btype = block.get("type")
+                            if btype == "text":
+                                parts.append(block.get("text", ""))
+                            elif btype == "tool_use":
+                                parts.append(f"[Tool call: {block.get('name', 'unknown')}]")
+                            elif btype == "tool_result":
+                                result_content = block.get("content", "")
+                                if isinstance(result_content, list):
+                                    result_content = " ".join(
+                                        b.get("text", "") for b in result_content if isinstance(b, dict)
+                                    )
+                                parts.append(f"[Tool result: {str(result_content)[:300]}]")
+                        text = "\n".join(p for p in parts if p)
+                    else:
+                        text = str(raw)
+
+                    if not text.strip():
+                        continue
+                    md.append(f"### {role} ({ts})")
+                    md.append(f"{text}\n")
+            except Exception:
+                md.append("Error parsing Claude Code JSONL")
+
         return "\n".join(md)
 
     def slugify(self, text):
@@ -440,6 +509,16 @@ class ChatArchiver:
                     parsed_content = json.loads(raw_content)
                 except json.JSONDecodeError:
                     parsed_content = raw_content
+            elif file_path.endswith(".jsonl"):
+                parsed_content = []
+                for line in raw_content.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        parsed_content.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
             else:
                 parsed_content = raw_content
 
@@ -516,6 +595,7 @@ class ChatArchiver:
         self.process_gemini_archive()
         self.process_roo()
         self.process_aider()
+        self.process_claude()
         
         mode_prefix = "[DRY-RUN] Estimated" if self.dry_run else "Total"
         s3_location = f"s3://{self.config['s3']['bucket']}/{self.config['s3']['prefix']}"

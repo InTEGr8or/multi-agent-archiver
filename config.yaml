@@ -18,9 +18,7 @@ paths:
     - "~/.vscode-server-insiders/data/User/globalStorage/rooveterinaryinc.roo-cline/tasks/*/ui_messages.json"
     - "~/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline/tasks/*/ui_messages.json"
     - "~/.config/Code - Insiders/User/globalStorage/rooveterinaryinc.roo-cline/tasks/*/ui_messages.json"
-  aider:
-    - "~/repos/**/.aider.chat.history.md"
-    - "~/projects/**/.aider.chat.history.md"
+  # aider and claude are now discovered via agent-cli-registry, not globs here.
 
 filters:
   gemini_commit_only:

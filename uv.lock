@@ -4,15 +4,14 @@ requires-python = ">=3.12"
 
 [[package]]
 name = "agent-cli-registry"
-version = "0.1.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.1.1"
+source = { directory = "/home/mstouffer/repos/agent-registry" }
 dependencies = [
     { name = "verkit" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/43/10/b9f63d98c8b5db126edb8902b256f2817cf2c3282b031231fe074c5cc123/agent_cli_registry-0.1.0.tar.gz", hash = "sha256:467e18261a5986be0978f262712807459a0fbbb14f5e5ef7743d2d0c406ccc63", size = 7217, upload-time = "2026-08-25T06:35:16.265Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/0d/595f4a9b8b59c4c4dc56798c39e7be3b782829ce81dd1d6c0ab598e9c450/agent_cli_registry-0.1.0-py3-none-any.whl", hash = "sha256:13751d0f5a18091a4d6fbfcd406f7b615f1398fc4625d635477464d4b8c96af8", size = 6127, upload-time = "2026-08-25T06:35:14.993Z" },
-]
+
+[package.metadata]
+requires-dist = [{ name = "verkit", specifier = ">=0.1.4" }]
 
 [[package]]
 name = "annotated-types"
@@ -159,7 +158,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-cli-registry", specifier = ">=0.1.0" },
+    { name = "agent-cli-registry", directory = "/home/mstouffer/repos/agent-registry" },
     { name = "boto3", specifier = ">=1.42.17" },
     { name = "google-genai", specifier = ">=1.56.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
