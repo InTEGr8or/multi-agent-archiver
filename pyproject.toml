@@ -1,17 +1,33 @@
 [project]
 name = "chatarch"
 version = "0.1.0"
-description = "Add your description here"
+description = "Archive local AI chat histories to S3, freeing up disk space while keeping conversations searchable"
 readme = "README.md"
 requires-python = ">=3.12"
+authors = [
+    { name = "Mark Stouffer", email = "1802850+InTEGr8or@users.noreply.github.com" }
+]
+license = { text = "MIT" }
 dependencies = [
     "boto3>=1.42.17",
     "google-genai>=1.56.0",
     "pyyaml>=6.0.3",
     "requests>=2.32.5",
+    "rich>=13.9.4",
     "tqdm>=4.67.1",
+    "verkit>=0.1.4",
     "agent-cli-registry>=0.1.0",
 ]
+
+[project.scripts]
+chatarch = "chatarch.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chatarch"]
 
 [dependency-groups]
 dev = [
@@ -20,3 +36,4 @@ dev = [
 
 [tool.uv.sources]
 agent-cli-registry = { path = "/home/mstouffer/repos/agent-registry" }
+verkit = { path = "/home/mstouffer/repos/verkit" }

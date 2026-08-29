@@ -12,10 +12,10 @@ lint: ## Run linting and auto-fix with Ruff
 	uv run ruff check --fix .
 
 dry-run: lint ## Perform a dry run of the archiver (e.g. make dry-run ARGS="--limit 5")
-	uv run python archiver.py --dry-run $(ARGS)
+	uv run chatarch --dry-run $(ARGS)
 
 archive: lint ## Archive chats to S3 and remove local files
-	uv run python archiver.py $(ARGS)
+	uv run chatarch $(ARGS)
 
 cleanup: lint ## Delete commit-only chats locally (no S3 upload)
-	uv run python archiver.py --cleanup-only $(ARGS)
+	uv run chatarch --cleanup-only $(ARGS)

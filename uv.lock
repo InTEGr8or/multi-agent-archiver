@@ -141,14 +141,16 @@ wheels = [
 [[package]]
 name = "chatarch"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "agent-cli-registry" },
     { name = "boto3" },
     { name = "google-genai" },
     { name = "pyyaml" },
     { name = "requests" },
+    { name = "rich" },
     { name = "tqdm" },
+    { name = "verkit" },
 ]
 
 [package.dev-dependencies]
@@ -163,7 +165,9 @@ requires-dist = [
     { name = "google-genai", specifier = ">=1.56.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "requests", specifier = ">=2.32.5" },
+    { name = "rich", specifier = ">=13.9.4" },
     { name = "tqdm", specifier = ">=4.67.1" },
+    { name = "verkit", directory = "/home/mstouffer/repos/verkit" },
 ]
 
 [package.metadata.requires-dev]
@@ -626,15 +630,14 @@ wheels = [
 
 [[package]]
 name = "verkit"
-version = "0.1.4"
-source = { registry = "https://pypi.org/simple" }
+version = "0.1.5"
+source = { directory = "/home/mstouffer/repos/verkit" }
 dependencies = [
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a8/68/70d0727c0feff38a35881f0db362c93ebdf6dc4b14b024b3b4434f1795de/verkit-0.1.4.tar.gz", hash = "sha256:2ec6bf18124736783517c16858ac3799a21ba89e4fcc324a3ad22930c0b52cc8", size = 9034, upload-time = "2026-07-31T14:56:38.01Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/ee/6eadd91f262d01b316722e768b549248b1a660ac20029b67bc2dc2e97bf0/verkit-0.1.4-py3-none-any.whl", hash = "sha256:bce42636d1bfb22e20e63bfccf74df8349836c17930ef1c3d3bd836e7a170cbb", size = 9149, upload-time = "2026-07-31T14:56:36.889Z" },
-]
+
+[package.metadata]
+requires-dist = [{ name = "rich", specifier = ">=10.0.0" }]
 
 [[package]]
 name = "websockets"

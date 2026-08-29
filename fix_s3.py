@@ -1,6 +1,6 @@
 import json
 import re
-from archiver import ChatArchiver
+from chatarch.archiver import ChatArchiver
 from tqdm import tqdm
 
 def main():

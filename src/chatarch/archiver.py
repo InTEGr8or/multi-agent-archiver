@@ -1,4 +1,3 @@
-import argparse
 import os
 import json
 import yaml
@@ -12,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 import time
 import random
 from tqdm import tqdm
+from rich.console import Console
 import subprocess
 
 from agent_registry import discover_agent_chats, get_chat_workspace, get_chat_last_active
@@ -36,25 +36,26 @@ logging.basicConfig(
     filemode='a'
 )
 # Create a console handler for critical errors only
-console = logging.StreamHandler()
-console.setLevel(logging.WARNING)
-logging.getLogger('').addHandler(console)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.WARNING)
+logging.getLogger('').addHandler(console_handler)
 
 logger = logging.getLogger(__name__)
+
 
 class ChatArchiver:
     def __init__(self, config_path="config.yaml", dry_run=False, limit=None, days_override=None):
         with open(config_path, "r") as f:
             self.config = yaml.safe_load(f)
-        
+
         self.dry_run = dry_run
         self.limit = limit
         self.days_override = days_override
         self.processed_count = 0
-        
+
         self.retention_days = self.days_override if self.days_override is not None else self.config.get('retention', {}).get('days', 20)
         self.keep_count = self.config.get('retention', {}).get('keep_recent', 5)
-        
+
         # Load workspace index if it exists
         self.workspace_index = {}
         index_path = Path("data/workspace_index.json")
@@ -72,9 +73,10 @@ class ChatArchiver:
         self._gemini_client = None
         self.gemini_api_key = None
         self._gemini_key_fetch_attempted = False
-            
+
         self.request_delay = self.config.get('summarization', {}).get('delay', 10)
         self.total_bytes_saved = 0
+        self.console = Console()
 
     @property
     def s3_client(self):
@@ -155,9 +157,9 @@ class ChatArchiver:
         try:
             with open(file_path, "r") as f:
                 data = json.load(f)
-            
+
             messages = data.get("messages", [])
-            
+
             # Case 1: Empty conversation
             if not messages:
                 return True, "Empty conversation"
@@ -168,7 +170,7 @@ class ChatArchiver:
                 first_msg_text = " ".join([str(p) for p in first_msg_raw])
             else:
                 first_msg_text = str(first_msg_raw)
-            
+
             # Case 2: Contentless conversation
             if not first_msg_text.strip():
                 return True, "No content in first message"
@@ -181,14 +183,14 @@ class ChatArchiver:
                 "create a git commit for all staged",
                 "The commit has been successfully created"
             ]
-            
+
             is_commit_prompt = any(pattern in first_msg_lower for pattern in commit_patterns)
             preview = first_msg_text.strip().replace("\n", " ")[:50]
-            
+
             # Case 3: Automated commit prompt with more leeway for messages (retries/errors)
             if is_commit_prompt and len(messages) <= 15:
                 return True, preview
-                
+
             return False, preview
         except Exception as e:
             logger.error(f"Error checking {file_path}: {e}")
@@ -197,16 +199,16 @@ class ChatArchiver:
     def get_summary(self, content):
         # Access self.client to trigger secret fetch even in dry-run
         client = self.client
-        
+
         if self.dry_run:
             return "Dry Run Title", "Dry run summary (Secret Fetch Verified). This is a mock 1-3 paragraph summary to simulate the new format."
-        
+
         if not client:
             return "Summary unavailable", "Summary unavailable (No API Key)"
-        
+
         # Initial configured delay
         time.sleep(self.request_delay)
-        
+
         retries = 0
         max_retries = 5
         base_delay = 5
@@ -223,22 +225,22 @@ class ChatArchiver:
                     "or 'The following discussed...'. Start both the title and the summary directly with the core content.\n\n"
                     f"Conversation content:\n{content[:15000]}"
                 )
-                
+
                 response = client.models.generate_content(
                     model=self.config['summarization']['model'],
                     contents=prompt
                 )
                 text = response.text.strip()
-                
+
                 title = "Untitled Conversation"
                 summary = text
-                
+
                 # Try to parse title and summary from the response
                 if "TITLE:" in text and "SUMMARY:" in text:
                     parts = text.split("SUMMARY:", 1)
                     title_part = parts[0].replace("TITLE:", "").strip()
                     summary_part = parts[1].strip()
-                    
+
                     if title_part:
                         title = title_part
                     if summary_part:
@@ -246,8 +248,8 @@ class ChatArchiver:
 
                 # Cleanup generic prefixes if they still occur
                 prefixes_to_strip = [
-                    "This conversation is about", "This chat is about", 
-                    "In this conversation", "In this chat", 
+                    "This conversation is about", "This chat is about",
+                    "In this conversation", "In this chat",
                     "The conversation discussed", "The following discussed",
                     "The conversation begins with", "The chat starts with",
                     "The conversation is an", "The chat is an"
@@ -257,7 +259,7 @@ class ChatArchiver:
                         title = title[len(prefix):].strip().lstrip(':').strip()
                     if summary.lower().startswith(prefix.lower()):
                         summary = summary[len(prefix):].strip().lstrip(':').strip()
-                
+
                 return title[:200], summary
             except Exception as e:
                 is_rate_limit = False
@@ -265,7 +267,7 @@ class ChatArchiver:
                     is_rate_limit = True
                 elif "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                     is_rate_limit = True
-                
+
                 if is_rate_limit:
                     delay = (base_delay * (2 ** retries)) + random.uniform(0, 1)
                     logger.warning(f"Rate limit hit. Retrying in {delay:.2f}s... (Attempt {retries + 1}/{max_retries})")
@@ -274,14 +276,14 @@ class ChatArchiver:
                 else:
                     logger.error(f"Error getting summary: {e}")
                     raise e
-        
+
         raise Exception("Max retries exceeded for rate limiting.")
 
     def process_gemini_cleanup(self):
         logger.info("Cleaning up commit-only Gemini chats...")
         files = self.discover_files('gemini')
         logger.info(f"Scanning {len(files)} Gemini chats for cleanup.")
-        
+
         deleted_count = 0
         for f in tqdm(files, desc="Cleaning Gemini chats", unit="file"):
             is_commit, preview = self.is_gemini_commit_only(f)
@@ -289,7 +291,7 @@ class ChatArchiver:
                 file_size = Path(f).stat().st_size
                 if self.dry_run:
                     tqdm.write(f"[DRY-RUN] Identifying commit-only chat: {f} | Prompt: {preview}...")
-                
+
                 logger.info(f"Identified commit-only Gemini chat: {f} ({self.format_size(file_size)})")
                 if not self.dry_run:
                     try:
@@ -302,7 +304,7 @@ class ChatArchiver:
                 else:
                     self.total_bytes_saved += file_size
                     deleted_count += 1
-        
+
         logger.info(f"Cleanup complete. Identified {deleted_count} files for deletion.")
 
     def get_workspace_info(self, file_path, category):
@@ -343,10 +345,10 @@ class ChatArchiver:
     def process_category_archival(self, category):
         if self.limit and self.processed_count >= self.limit:
             return
-            
+
         logger.info(f"Processing {category} chats for archival...")
         files = self.discover_files(category)
-        
+
         # Group files by workspace
         workspaces = {}
         for f in files:
@@ -354,7 +356,7 @@ class ChatArchiver:
             if ws_path not in workspaces:
                 workspaces[ws_path] = []
             workspaces[ws_path].append(f)
-            
+
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.retention_days)
         keep_count = self.keep_count
 
@@ -374,14 +376,14 @@ class ChatArchiver:
                     ws_files_with_mtime.append((f, mtime, ws_path))
                 except OSError:
                     continue
-            
+
             ws_files_with_mtime.sort(key=lambda x: x[1], reverse=True)
-            
+
             # Process files, skipping the most recent N
             for i, (f, mtime, ws_p) in enumerate(ws_files_with_mtime):
                 if i < keep_count:
                     continue
-                    
+
                 if mtime < cutoff_date:
                     files_to_archive.append((f, ws_p))
 
@@ -411,7 +413,7 @@ class ChatArchiver:
         md = [f"# Archive: {category.capitalize()} Chat", "---"]
         if workspace_path:
             md.append(f"**Workspace:** `{workspace_path}`\n")
-        
+
         if category == 'gemini':
             try:
                 data = content if isinstance(content, dict) else json.loads(content)
@@ -431,7 +433,7 @@ class ChatArchiver:
                     mtype = msg.get("type", "")
                     say = msg.get("say", "")
                     text = msg.get("text", "")
-                    
+
                     if mtype == "say" and say in ["text", "user_feedback"]:
                         role = "USER" if say == "user_feedback" else "ROO"
                         md.append(f"### {role}")
@@ -502,7 +504,7 @@ class ChatArchiver:
             file_size = p.stat().st_size
             with open(file_path, "r") as f:
                 raw_content = f.read()
-            
+
             parsed_content = None
             if file_path.endswith(".json"):
                 try:
@@ -534,27 +536,27 @@ class ChatArchiver:
 
             markdown_content = self.to_markdown(category, parsed_content, workspace_path)
             title, summary = self.get_summary(markdown_content)
-            
+
             # Generate slug from the title
             slug = self.slugify(title)
             if not slug:
                 slug = "conversation"
-            
+
             base_key_name = f"{date_str}-{slug}"
-            
+
             # Prepend title and summary to markdown for better readability in the archive
             full_markdown = f"# Title: {title}\n\n# Summary\n{summary}\n\n{markdown_content}"
-            
+
             # Use both title and summary in the summary.txt file
             full_summary_text = f"Title: {title}\n\nSummary:\n{summary}"
-            
+
             # Extract Year and Month for sharding
             # date_str is expected to be YYYY-MM-DD
             year = date_str[:4]
             month = date_str[5:7]
-            
+
             s3_prefix = f"{self.config['s3']['prefix']}{category}/{year}/{month}/{base_key_name}"
-            
+
             uploads = [
                 {"key": f"{s3_prefix}.md", "body": full_markdown, "type": "text/markdown"},
                 {"key": f"{s3_prefix}.summary.txt", "body": full_summary_text, "type": "text/plain"},
@@ -568,7 +570,7 @@ class ChatArchiver:
                 return
 
             logger.info(f"Archiving {file_path} to S3 (3 files)...")
-            
+
             for upload in uploads:
                 self.s3_client.put_object(
                     Bucket=self.config['s3']['bucket'],
@@ -576,40 +578,35 @@ class ChatArchiver:
                     Body=upload['body'],
                     ContentType=upload['type']
                 )
-            
+
             os.remove(file_path)
             self.total_bytes_saved += file_size
             self.processed_count += 1
             logger.info(f"Successfully archived (MD, Summary, JSON) and removed local file: {file_path}")
-            
+
         except Exception as e:
             logger.error(f"Failed to archive {file_path}: {e}")
 
     def run(self, cleanup_only=False):
         self.process_gemini_cleanup()
+        mode_label = "[DRY-RUN] Estimated" if self.dry_run else "Total"
+
         if cleanup_only:
-            mode_prefix = "[DRY-RUN] Estimated" if self.dry_run else "Total"
-            print(f"\n{mode_prefix} disk space reclaimed from cleanup: {self.format_size(self.total_bytes_saved)}")
+            self.console.print(
+                f"\n[bold]{mode_label} disk space reclaimed from cleanup:[/bold] "
+                f"[green]{self.format_size(self.total_bytes_saved)}[/green]"
+            )
             return
 
         self.process_gemini_archive()
         self.process_roo()
         self.process_aider()
         self.process_claude()
-        
-        mode_prefix = "[DRY-RUN] Estimated" if self.dry_run else "Total"
+
         s3_location = f"s3://{self.config['s3']['bucket']}/{self.config['s3']['prefix']}"
-        
-        print(f"\n{mode_prefix} disk space reclaimed: {self.format_size(self.total_bytes_saved)}")
-        print(f"Archive Destination: {s3_location}")
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Archive AI chats to S3.")
-    parser.add_argument("--dry-run", action="store_true", help="Perform a dry run.")
-    parser.add_argument("--limit", type=int, help="Limit the number of files archived.")
-    parser.add_argument("--days", type=int, help="Override the retention period (number of days). Use 0 for no limit.")
-    parser.add_argument("--cleanup-only", action="store_true", help="Only perform cleanup of commit-only chats.")
-    args = parser.parse_args()
-
-    archiver = ChatArchiver(dry_run=args.dry_run, limit=args.limit, days_override=args.days)
-    archiver.run(cleanup_only=args.cleanup_only)
+        self.console.print(
+            f"\n[bold]{mode_label} disk space reclaimed:[/bold] "
+            f"[green]{self.format_size(self.total_bytes_saved)}[/green]"
+        )
+        self.console.print(f"[bold]Archive Destination:[/bold] [cyan]{s3_location}[/cyan]")
