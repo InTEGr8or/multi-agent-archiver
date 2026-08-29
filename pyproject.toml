@@ -1,5 +1,5 @@
 [project]
-name = "chatarch"
+name = "agent-chat-archiver"
 version = "0.1.0"
 description = "Archive local AI chat histories to S3, freeing up disk space while keeping conversations searchable"
 readme = "README.md"
