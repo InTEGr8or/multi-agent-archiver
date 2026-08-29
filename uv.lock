@@ -24,14 +24,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-cli-registry", directory = "/home/mstouffer/repos/agent-registry" },
+    { name = "agent-cli-registry", specifier = ">=0.1.2" },
     { name = "boto3", specifier = ">=1.42.17" },
     { name = "google-genai", specifier = ">=1.56.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "requests", specifier = ">=2.32.5" },
     { name = "rich", specifier = ">=13.9.4" },
     { name = "tqdm", specifier = ">=4.67.1" },
-    { name = "verkit", directory = "/home/mstouffer/repos/verkit" },
+    { name = "verkit", specifier = ">=0.1.4" },
 ]
 
 [package.metadata.requires-dev]
@@ -39,14 +39,15 @@ dev = [{ name = "ruff", specifier = ">=0.14.10" }]
 
 [[package]]
 name = "agent-cli-registry"
-version = "0.1.1"
-source = { directory = "/home/mstouffer/repos/agent-registry" }
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "verkit" },
 ]
-
-[package.metadata]
-requires-dist = [{ name = "verkit", specifier = ">=0.1.4" }]
+sdist = { url = "https://files.pythonhosted.org/packages/e7/25/d4b62e81bcc847f5e44d4d6ff86ddba6e2b7943d18f2dec8a21fc5f4b212/agent_cli_registry-0.1.2.tar.gz", hash = "sha256:3284691262d73fd2c9dafe170be7891a104954fc3996a6cfb111eaffc2c49beb", size = 9297, upload-time = "2026-08-29T20:59:01.395Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/94/e5/dcd2d37b72037560164322981bc394c4f22b588a9c752f72da1b2e6a418d/agent_cli_registry-0.1.2-py3-none-any.whl", hash = "sha256:515a3c92a951795e78767dceeaa7c40fe56de1aec3b47344b8070d7128f22ecb", size = 8154, upload-time = "2026-08-29T20:59:00.371Z" },
+]
 
 [[package]]
 name = "annotated-types"
@@ -631,13 +632,14 @@ wheels = [
 [[package]]
 name = "verkit"
 version = "0.1.5"
-source = { directory = "/home/mstouffer/repos/verkit" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "rich" },
 ]
-
-[package.metadata]
-requires-dist = [{ name = "rich", specifier = ">=10.0.0" }]
+sdist = { url = "https://files.pythonhosted.org/packages/37/c4/f179bda37f2c6608d8b456233f849526821efbf4dd0c3d7ff46f458a19e7/verkit-0.1.5.tar.gz", hash = "sha256:70d7b0fa6f18c1fa4e0c0b2f2ca318ff0282a2d006c34d83bd8569034c79ef20", size = 9463, upload-time = "2026-08-25T18:59:25.03Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/99/2ad1b39a694762d1f4bdb22691ac12ba5f5793fe3f84beff336c351c7b92/verkit-0.1.5-py3-none-any.whl", hash = "sha256:3176908e71301d63e544fd6411d2dacba8d11f301b45b187af47513c141bf1be", size = 9792, upload-time = "2026-08-25T18:59:23.792Z" },
+]
 
 [[package]]
 name = "websockets"

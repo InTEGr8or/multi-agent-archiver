@@ -16,7 +16,7 @@ dependencies = [
     "rich>=13.9.4",
     "tqdm>=4.67.1",
     "verkit>=0.1.4",
-    "agent-cli-registry>=0.1.0",
+    "agent-cli-registry>=0.1.2",
 ]
 
 [project.scripts]
@@ -33,7 +33,3 @@ packages = ["src/chatarch"]
 dev = [
     "ruff>=0.14.10",
 ]
-
-[tool.uv.sources]
-agent-cli-registry = { path = "/home/mstouffer/repos/agent-registry" }
-verkit = { path = "/home/mstouffer/repos/verkit" }
