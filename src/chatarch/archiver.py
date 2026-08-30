@@ -6,6 +6,7 @@ import re
 import boto3
 from pathlib import Path
 import logging
+from logging.handlers import TimedRotatingFileHandler
 from google import genai
 from datetime import datetime, timedelta, timezone
 import time
@@ -28,17 +29,25 @@ REGISTRY_BACKED_CATEGORIES = {
     },
 }
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    filename='archiver.log', # Write logs to file
-    filemode='a'
+LOG_DIR = Path(".logs")
+LOG_RETENTION_DAYS = 180
+
+# Configure logging: one file per day under .logs/, auto-pruned after
+# LOG_RETENTION_DAYS days so the archiver never grows an unbounded log file.
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+file_handler = TimedRotatingFileHandler(
+    LOG_DIR / "archiver.log",
+    when="midnight",
+    backupCount=LOG_RETENTION_DAYS,
+    encoding="utf-8",
 )
-# Create a console handler for critical errors only
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+
+# Console handler for critical errors only
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.WARNING)
-logging.getLogger('').addHandler(console_handler)
+
+logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
 
 logger = logging.getLogger(__name__)
 
