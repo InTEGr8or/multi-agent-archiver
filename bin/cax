@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Dev shim: runs this repo's live source via `uv run` instead of the
+# globally uv-tool-installed agent-chat-archiver. Only on PATH while inside
+# this repo (see mise.toml's [env]._.path) -- outside it, the `cax`/
+# `chatarch` on PATH are the globally installed, published version.
+set -euo pipefail
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec uv run --project "$repo_root" "$(basename "${BASH_SOURCE[0]}")" "$@"

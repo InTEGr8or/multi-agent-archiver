@@ -55,4 +55,10 @@ Settings like S3 bucket names, local search paths, and API delays are managed in
 
 ## Logging
 
-All detailed operations and API responses are logged to `chatarch/archiver.log`. Progress is displayed in the terminal via a status bar.
+All detailed operations and API responses are logged to `.logs/archiver.log`, rotated daily and kept for 180 days. Progress is displayed in the terminal via a status bar.
+
+## Development
+
+The package publishes two equivalent commands, `chatarch` and its short alias `cax` (`pip install agent-chat-archiver` / `uv tool install agent-chat-archiver`).
+
+Inside this repo, `bin/` (added to `PATH` via `mise.toml`'s `[env]` when you `cd` in, since this repo's dev environment is managed with [mise](https://mise.jdx.dev/)) shadows the globally installed commands with a shim that runs this repo's live source via `uv run`. Outside the repo, `chatarch`/`cax` resolve back to whatever version is installed globally. Run `mise trust` once after cloning to enable it.
