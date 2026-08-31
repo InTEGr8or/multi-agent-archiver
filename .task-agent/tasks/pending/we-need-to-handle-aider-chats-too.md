@@ -1,3 +1,7 @@
+---
+created_at: 2026-08-24T19:57:57.070365-07:00
+---
+
 # We need to handle Aider chats too
 
 I have a bunch of old Aider chats. They are in ~/.aider, I think, or there might be a link configged in there
