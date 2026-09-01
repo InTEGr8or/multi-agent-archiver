@@ -15,7 +15,7 @@ from tqdm import tqdm
 from rich.console import Console
 import subprocess
 
-from agent_registry import discover_agent_chats, get_chat_workspace, get_chat_last_active
+from multi_agent_registry import discover_agent_chats, get_chat_workspace, get_chat_last_active
 
 # Categories whose file discovery is delegated to agent-cli-registry instead
 # of the `paths` globs in config.yaml. `search_roots` is only meaningful for
@@ -361,7 +361,7 @@ class ChatArchiver:
         return "Unknown", "Unknown"
 
     def _as_discovered_chat(self, file_path, category):
-        from agent_registry import DiscoveredChat
+        from multi_agent_registry import DiscoveredChat
         parser_type = "jsonl" if category == "claude" else "markdown"
         return DiscoveredChat(agent_id=category, path=Path(file_path), parser_type=parser_type)
 

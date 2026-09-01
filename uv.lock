@@ -3,53 +3,6 @@ revision = 3
 requires-python = ">=3.12"
 
 [[package]]
-name = "agent-chat-archiver"
-version = "0.1.4"
-source = { editable = "." }
-dependencies = [
-    { name = "agent-cli-registry" },
-    { name = "boto3" },
-    { name = "google-genai" },
-    { name = "pyyaml" },
-    { name = "requests" },
-    { name = "rich" },
-    { name = "tqdm" },
-    { name = "verkit" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "agent-cli-registry", specifier = ">=0.1.2" },
-    { name = "boto3", specifier = ">=1.42.17" },
-    { name = "google-genai", specifier = ">=1.56.0" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "requests", specifier = ">=2.32.5" },
-    { name = "rich", specifier = ">=13.9.4" },
-    { name = "tqdm", specifier = ">=4.67.1" },
-    { name = "verkit", specifier = ">=0.1.4" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.14.10" }]
-
-[[package]]
-name = "agent-cli-registry"
-version = "0.1.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "verkit" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e7/25/d4b62e81bcc847f5e44d4d6ff86ddba6e2b7943d18f2dec8a21fc5f4b212/agent_cli_registry-0.1.2.tar.gz", hash = "sha256:3284691262d73fd2c9dafe170be7891a104954fc3996a6cfb111eaffc2c49beb", size = 9297, upload-time = "2026-08-29T20:59:01.395Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/94/e5/dcd2d37b72037560164322981bc394c4f22b588a9c752f72da1b2e6a418d/agent_cli_registry-0.1.2-py3-none-any.whl", hash = "sha256:515a3c92a951795e78767dceeaa7c40fe56de1aec3b47344b8070d7128f22ecb", size = 8154, upload-time = "2026-08-29T20:59:00.371Z" },
-]
-
-[[package]]
 name = "annotated-types"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -306,6 +259,53 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729, upload-time = "2022-08-14T12:40:10.846Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
+]
+
+[[package]]
+name = "multi-agent-archiver"
+version = "0.1.4"
+source = { editable = "." }
+dependencies = [
+    { name = "boto3" },
+    { name = "google-genai" },
+    { name = "multi-agent-registry" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "rich" },
+    { name = "tqdm" },
+    { name = "verkit" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.42.17" },
+    { name = "google-genai", specifier = ">=1.56.0" },
+    { name = "multi-agent-registry", specifier = ">=0.2.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "requests", specifier = ">=2.32.5" },
+    { name = "rich", specifier = ">=13.9.4" },
+    { name = "tqdm", specifier = ">=4.67.1" },
+    { name = "verkit", specifier = ">=0.1.4" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "ruff", specifier = ">=0.14.10" }]
+
+[[package]]
+name = "multi-agent-registry"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "verkit" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cb/63/f7edca554f50bcf155a2017bff50028d342cf0387dd0ef77225921cd6632/multi_agent_registry-0.2.0.tar.gz", hash = "sha256:b250bed0bdd7f1aa12051a03cc0acbd1701e0db80894e1cc23f9994adba1e924", size = 10904, upload-time = "2026-09-01T20:17:44.278Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/97/af/d25cff841e46e8c20f50f1248145df45bafee11b8e7eb75937798e1c1ed9/multi_agent_registry-0.2.0-py3-none-any.whl", hash = "sha256:60601e9351da5c15e0e1759d16dce63edc9f404486eaf66b8a5305c50e172e5e", size = 10042, upload-time = "2026-09-01T20:17:43.158Z" },
 ]
 
 [[package]]

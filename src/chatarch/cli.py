@@ -53,7 +53,7 @@ def main():
     console = Console()
 
     if args.version:
-        verkit.display_version_info(console, "agent-chat-archiver", upgrade_cmd="uv tool upgrade agent-chat-archiver")
+        verkit.display_version_info(console, "multi-agent-archiver", upgrade_cmd="uv tool upgrade multi-agent-archiver")
         return
 
     if args.command is None:
