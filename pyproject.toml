@@ -1,6 +1,6 @@
 [project]
 name = "multi-agent-archiver"
-version = "0.1.4"
+version = "0.1.5"
 description = "Archive local AI chat histories to S3, freeing up disk space while keeping conversations searchable"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,6 +22,7 @@ dependencies = [
 [project.scripts]
 chatarch = "chatarch.cli:main"
 cax = "chatarch.cli:main"
+maa = "chatarch.cli:main"
 
 [build-system]
 requires = ["hatchling"]

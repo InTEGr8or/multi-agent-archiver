@@ -16,7 +16,7 @@ COMMANDS = [
 
 def show_menu(console: Console):
     table = Table(
-        title="[bold blue]chatarch (cax) -- AI chat archiver[/bold blue]",
+        title="[bold blue]multi-agent-archiver (chatarch / cax / maa)[/bold blue]",
         box=theme.table_box,
         header_style=theme.header_style,
         padding=theme.table_padding,

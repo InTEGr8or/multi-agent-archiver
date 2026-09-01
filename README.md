@@ -59,6 +59,6 @@ All detailed operations and API responses are logged to `.logs/archiver.log`, ro
 
 ## Development
 
-The package publishes two equivalent commands, `chatarch` and its short alias `cax` (`pip install multi-agent-archiver` / `uv tool install multi-agent-archiver`).
+The package publishes three equivalent commands: `chatarch`, and its short aliases `cax` and `maa` (`pip install multi-agent-archiver` / `uv tool install multi-agent-archiver`).
 
-Inside this repo, `bin/` (added to `PATH` via `mise.toml`'s `[env]` when you `cd` in, since this repo's dev environment is managed with [mise](https://mise.jdx.dev/)) shadows the globally installed commands with a shim that runs this repo's live source via `uv run`. Outside the repo, `chatarch`/`cax` resolve back to whatever version is installed globally. Run `mise trust` once after cloning to enable it.
+Inside this repo, `bin/` (added to `PATH` via `mise.toml`'s `[env]` when you `cd` in, since this repo's dev environment is managed with [mise](https://mise.jdx.dev/)) shadows the globally installed commands with a shim that runs this repo's live source via `uv run`. Outside the repo, `chatarch`/`cax`/`maa` resolve back to whatever version is installed globally. Run `mise trust` once after cloning to enable it.
