@@ -27,6 +27,12 @@ cax = "chatarch.cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+exclude = [
+    "docs/",
+    ".task-agent/",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/chatarch"]
 
