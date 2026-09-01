@@ -5,6 +5,7 @@ from rich.console import Console
 from rich.table import Table
 
 from chatarch.archiver import ChatArchiver
+from chatarch.theme import DEFAULT as theme
 
 COMMANDS = [
     ("dry-run", "Preview what would be cleaned up and archived, without changing anything."),
@@ -14,7 +15,12 @@ COMMANDS = [
 
 
 def show_menu(console: Console):
-    table = Table(title="chatarch (cax) -- AI chat archiver", header_style="bold cyan")
+    table = Table(
+        title="[bold blue]chatarch (cax) -- AI chat archiver[/bold blue]",
+        box=theme.table_box,
+        header_style=theme.header_style,
+        padding=theme.table_padding,
+    )
     table.add_column("Command", style="bold green")
     table.add_column("Description")
     for name, desc in COMMANDS:
