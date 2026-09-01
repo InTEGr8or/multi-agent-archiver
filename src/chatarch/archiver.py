@@ -32,28 +32,42 @@ REGISTRY_BACKED_CATEGORIES = {
 LOG_DIR = Path(".logs")
 LOG_RETENTION_DAYS = 180
 
-# Configure logging: one file per day under .logs/, auto-pruned after
-# LOG_RETENTION_DAYS days so the archiver never grows an unbounded log file.
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-file_handler = TimedRotatingFileHandler(
-    LOG_DIR / "archiver.log",
-    when="midnight",
-    backupCount=LOG_RETENTION_DAYS,
-    encoding="utf-8",
-)
-file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-
-# Console handler for critical errors only
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.WARNING)
-
-logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
-
 logger = logging.getLogger(__name__)
+
+_logging_configured = False
+
+
+def _configure_logging():
+    """Set up daily rotating file logging, on first actual use only.
+
+    Deferred out of module import so that a no-op invocation (bare `cax`,
+    `--version`, `--help`) never touches the filesystem -- only creating
+    .logs/archiver.log once an archiver actually runs.
+    """
+    global _logging_configured
+    if _logging_configured:
+        return
+    _logging_configured = True
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    file_handler = TimedRotatingFileHandler(
+        LOG_DIR / "archiver.log",
+        when="midnight",
+        backupCount=LOG_RETENTION_DAYS,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+
+    # Console handler for critical errors only
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.WARNING)
+
+    logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
 
 
 class ChatArchiver:
     def __init__(self, config_path="config.yaml", dry_run=False, limit=None, days_override=None):
+        _configure_logging()
         with open(config_path, "r") as f:
             self.config = yaml.safe_load(f)
 
